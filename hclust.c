@@ -8,8 +8,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "funcapi.h"
-
-#include <mpi.h>
 #include <stdint.h>
 
 #define NOT_USED  0 /* node is currently not used */
@@ -134,7 +132,7 @@ float euclidean_distance(const coord_t *a, const coord_t *b)
         return smth;	
 }
 
-float jaccard(const coord_t *a, const coord_t b*)
+float jaccard(const coord_t *a, const coord_t *b)
 
 {
         int in = 0;
@@ -142,11 +140,11 @@ float jaccard(const coord_t *a, const coord_t b*)
         for (int i = 0; i < 100; i++){
             uint8_t bitmap1[256] = {0};
             uint8_t bitmap2[256] = {0};
-            for (int j = 0; j < a->char_array[i]; j++){
-                    bitmap1[a->char_array[i]] = 1;
+            for (int j = 0; j < 256; j++){
+                    bitmap1[a->char_array[i][j]] = 1;
             }    
-            for (int j = 0; j < a->char_array[i]; j++){
-                    bitmap2[b->char_array[i]] = 1;
+            for (int j = 0; j < 256; j++){
+                    bitmap2[b->char_array[i][j]] = 1;
             }
             for (int i = 0; i < 256; i++){
                     in += bitmap1[i]&&bitmap2[i];
