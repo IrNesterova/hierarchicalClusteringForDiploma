@@ -9,6 +9,9 @@
 #include <stdio.h>
 #include "funcapi.h"
 
+#include <mpi.h>
+#include <stdint.h>
+
 #define NOT_USED  0 /* node is currently not used */
 #define LEAF_NODE 1 /* node contains a leaf node */
 #define A_MERGER  2 /* node contains a merged pair of root clusters */
@@ -53,7 +56,8 @@ typedef struct array_for_hclust{
 } harray;
 typedef struct coord_s {
 	float x,y;
-	int coord_array[100];
+	float coord_array[100];
+        char *char_array[100];
 } coord_t;
 
 float (*distance_method) (const coord_t*, const coord_t*);
@@ -130,6 +134,50 @@ float euclidean_distance(const coord_t *a, const coord_t *b)
         return smth;	
 }
 
+float jaccard(const coord_t *a, const coord_t b*)
+
+{
+        int in = 0;
+        int un = 0;
+        for (int i = 0; i < 100; i++){
+            uint8_t bitmap1[256] = {0};
+            uint8_t bitmap2[256] = {0};
+            for (int j = 0; j < a->char_array[i]; j++){
+                    bitmap1[a->char_array[i]] = 1;
+            }    
+            for (int j = 0; j < a->char_array[i]; j++){
+                    bitmap2[b->char_array[i]] = 1;
+            }
+            for (int i = 0; i < 256; i++){
+                    in += bitmap1[i]&&bitmap2[i];
+                    un+= bitmap1[i] || bitmap2[i];
+            }
+        }
+        float jacc = (float)in/un*100.0;
+        return jacc;
+}
+
+float soresen_coeff(const coord_t *a, const coord_t *b){
+        float coeffsum = 0;
+        for (int i = 0; i < 100; i++){
+                size_t length1 = strlen(a->char_array[i]) - 1;
+                size_t length2 = strlen(b->char_array[i]) - 1;
+                double matches;
+                int k = 0;
+                int j = 0;
+                while (k < length1 && j <length2){
+                        char ac[3] = {a->char_array[k], a->char_array[k+1],'\0'};
+                        char bc[3] = {b->char_array[k], b->char_array[k+1], '\0'};
+                        int cmp = _strmpi(ac, bc);
+                        if (cmp == 0)
+                                matches += 2;
+                        k++;
+                        j++;
+                }
+                coeffsum += matches / (length1 + length2);
+        }
+        return coeffsum;
+}
 float chebyshev_distance(const coord_t *a, const coord_t *b)
 {
         float chebyshev = 0;
@@ -284,6 +332,8 @@ float centroid_linkage(float **distances, const int a[],
 {
         return 0; /* empty function */
 }
+
+
 
 float get_distance(cluster_t *cluster, int index, int target)
 {
