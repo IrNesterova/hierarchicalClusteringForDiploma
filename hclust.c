@@ -166,7 +166,7 @@ float soresen_coeff(const coord_t *a, const coord_t *b){
                 while (k < length1 && j <length2){
                         char ac[3] = {a->char_array[k], a->char_array[k+1],'\0'};
                         char bc[3] = {b->char_array[k], b->char_array[k+1], '\0'};
-                        int cmp = _strmpi(ac, bc);
+                        int cmp = strcasecmp(ac, bc);
                         if (cmp == 0)
                                 matches += 2;
                         k++;
