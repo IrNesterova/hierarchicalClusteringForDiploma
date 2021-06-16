@@ -10,11 +10,15 @@
 #include "funcapi.h"
 #include <stdint.h>
 
+#include <time.h>
+
 #define NOT_USED  0 /* node is currently not used */
 #define LEAF_NODE 1 /* node contains a leaf node */
 #define A_MERGER  2 /* node contains a merged pair of root clusters */
 #define A_DIVISIVE 3 /* node contains a split pair of clusters */
 #define MAX_LABEL_LEN 16
+
+#define MAX_FLOAT 3.40282e+038
 
 #define AVERAGE_LINKAGE  1 /* choose average distance */
 #define CENTROID_LINKAGE 2 /* choose distance between cluster centroids */
@@ -29,6 +33,8 @@
 #define CHEBYSHEV_DISTANCE 2
 #define MANHATTAN_DISTANCE 3
 #define COSINE_SIMILARITY 4
+#define COEFFICIENT_JACCARD 5
+#define SORENSEN_COEFF 6
 
 #define AGNES 'a'
 #define DIANA 'd'
@@ -55,7 +61,7 @@ typedef struct array_for_hclust{
 typedef struct coord_s {
 	float x,y;
 	float coord_array[100];
-        char *char_array[100];
+        char char_array[100][50];
 } coord_t;
 
 float (*distance_method) (const coord_t*, const coord_t*);
@@ -121,7 +127,7 @@ struct item_s {
         char label[MAX_LABEL_LEN]; /* label of the input data point */
 };
 
-cluster_t* (*hierarchy) (int, item_t*);
+cluster_t* (*hierarchy) (int, item_t*, int);
 float euclidean_distance(const coord_t *a, const coord_t *b)
 {	
         float withoutsqrt = 0;
@@ -158,14 +164,14 @@ float jaccard(const coord_t *a, const coord_t *b)
 float soresen_coeff(const coord_t *a, const coord_t *b){
         float coeffsum = 0;
         for (int i = 0; i < 100; i++){
-                size_t length1 = strlen(a->char_array[i]) - 1;
-                size_t length2 = strlen(b->char_array[i]) - 1;
+                int length1 = 49;
+                int length2 = 49;
                 double matches;
                 int k = 0;
                 int j = 0;
                 while (k < length1 && j <length2){
-                        char ac[3] = {a->char_array[k], a->char_array[k+1],'\0'};
-                        char bc[3] = {b->char_array[k], b->char_array[k+1], '\0'};
+                        char ac[3] = {a->char_array[i][k], a->char_array[i][k+1],'\0'};
+                        char bc[3] = {b->char_array[i][k], b->char_array[i][k+1], '\0'};
                         int cmp = strcasecmp(ac, bc);
                         if (cmp == 0)
                                 matches += 2;
@@ -217,28 +223,7 @@ float cosine_distance(const coord_t *a, const coord_t *b)
 	}	   		
 }
 
-int levenstein(const coord_t *a, const coord_t *b)
-{
-   
-   
 
-}
-
-int min(int a, int b, int c)
-{	
-	if(a <= b && a <= c)
-	{
-		return a;
-	}
-	else if(b <= a && b <= c)
-	{
-		return b;
-	}
-	else if(c <= a && c <= b)
-	{
-		return c;
-	}
-}
 void fill_euclidean_distances(float **matrix, int num_items,
                               const item_t items[])
 {
@@ -252,15 +237,80 @@ void fill_euclidean_distances(float **matrix, int num_items,
                 }
 }
 
-void fill_dissimilarity_matrix(float **matrix, int num_items, const item_t items[])
-{
-	for (int i = 0; i < num_items; i++)
-		for (int j = 0; j < num_items; j++){
-			float similar = distance_method(&(items[i].coord), 
-								&(items[j].coord)); 
-			matrix[i][j] = similar - M_E;
-			matrix[j][i] = matrix[i][j];
+void fill_dissimilarity_matrix(float **matrix, int num_items, cluster_node_a_t nodes[], item_t *items, int clusternumber, int numallitems){
+	elog(INFO, "fill diss matrix");
+        for (int i = 0; i < numallitems; i++){
+        	for (int j = clusternumber - 1; j < clusternumber+1; j++){
+        		elog(INFO, "node number:%d", j);
+        		//calculating distance to centroid
+        		
+        		matrix[i][j] = distance_method(&(items[i].coord), &(nodes[j].centroid));
+        		matrix[j][i] = matrix [i][j];
+        		elog(INFO, "matrix i j:%lf", matrix[i][j]);
+        		
+        		
+        	}
+        }   
+}
+
+coord_t divideCentroid(coord_t centroid, float k){
+	for (int i = 0; i < 100; i++){
+		centroid.coord_array[i] = centroid.coord_array[i] / k;
+	}
+	return centroid;
+}
+void recalculate_centroids(cluster_node_a_t *nodes, int num_nodes, item_t *items){
+        
+        coord_t centroid = { .coord_array = 0};
+     
+        for (int i = 0; i < num_nodes; i++){
+	//if node type is a_divisive then we should recalculate centroids
+                if (nodes[i].type == A_DIVISIVE){
+                        
+                
+                for(int k = 0; k < nodes[i].num_items; k++){
+                        for (int j = 0; j < 100; j++){
+                                centroid.coord_array[j] = nodes[i].num_items * items[nodes[i].items[k]].coord.coord_array[j];
+                        }  
+                }
+                //divide by num_items
+                nodes[i].centroid = divideCentroid(centroid, nodes[i].num_items);
+        }        
+}
+
+}
+void choose_all_clusters_from_distance(int numallitems, int clusternumber, float **distanceArray, int *cluster_assignment_index, cluster_node_a_t nodes[], int items_array[]){
+	elog(INFO, "choosing clusters");
+	
+	for (int i = 0; i < numallitems; i++){
+		elog(INFO, "i");
+		int best_index = -1;
+		float closest_distance = MAX_FLOAT;
+		for (int j = clusternumber - 2; j < clusternumber; j++){
+					
+			float cur_distance = distanceArray[i][j];
+			if (cur_distance < closest_distance){
+				best_index = j;
+				closest_distance = cur_distance;
+			}
 		}
+		
+	elog(INFO, "1) pointer in items_array %d for best index:%d",best_index, items_array[best_index]);
+	nodes[best_index].items[items_array[best_index]] = i;
+	elog(INFO, "nodes best index %d, items number %d, value:%d", best_index, items_array[best_index], i);
+	nodes[best_index].type = A_DIVISIVE;
+	nodes[best_index].num_items += 1;
+	items_array[best_index] += 1;
+	elog(INFO, "2) pointer in items_array %d for best index:%d",best_index, items_array[best_index]);
+	}
+	
+}
+
+
+void copy_assignment_array(int n, int *src, int *tgt){
+	for (int i = 0; i < n; i++){
+		tgt[i] = src[i];
+	}
 }
 
 float **generate_distance_matrix(int num_items, const item_t items[])
@@ -283,6 +333,31 @@ float **generate_distance_matrix(int num_items, const item_t items[])
                 if (matrix)
 			
                         fill_euclidean_distances(matrix, num_items, items);
+        } else
+                alloc_fail("distance matrix");
+        return matrix;
+}
+
+float **generate_distance_matrix_divisive(int num_items, const cluster_node_a_t nodes[], item_t *items,  int clusternumber, int numallitems)
+{
+	
+        float **matrix = alloc_mem(numallitems, float *);
+        if (matrix) {
+                for (int i = 0; i < numallitems; ++i) {
+                        matrix[i] = alloc_mem(num_items, float);
+                        if (!matrix[i]) {
+                                alloc_fail("distance matrix row");
+                                num_items = i;
+                                for (i = 0; i < num_items; ++i)
+                                        free(matrix[i]);
+                                free(matrix);
+                                matrix = NULL;
+                                break;
+                        }
+                }
+                if (matrix)
+                	elog(INFO, "trying to fill diss matrix");
+                        fill_dissimilarity_matrix(matrix, num_items, nodes, items, clusternumber, numallitems);
         } else
                 alloc_fail("distance matrix");
         return matrix;
@@ -523,10 +598,13 @@ void print_cluster_items(cluster_t *cluster, int index)
 {
 
         cluster_node_a_t *node = &(cluster->nodes[index]);
+        elog(INFO, "index of a node:%d", index);
+        elog(NOTICE, "checking height:%d", node->height);
 	elog(INFO, "cluster number:%d", clusterN);
         elog(INFO, "Items: ");
         if (node->num_items > 0) {
                 char command[200];
+               
 		sprintf(command, "update %s set cluster_id = %d where id = %s",tableName, clusterN, cluster->nodes[node->items[0]].label);
  		
 		SPI_exec(command, 1);
@@ -543,6 +621,7 @@ void print_cluster_items(cluster_t *cluster, int index)
 
 void print_cluster_node(cluster_t *cluster, int index)
 {
+	elog(INFO, "i waas called");
         cluster_node_a_t *node = &(cluster->nodes[index]);
         print_cluster_items(cluster, index);
         
@@ -697,7 +776,7 @@ cluster_t *merge_clusters(cluster_t *cluster)
         } while (0)                                                     \
 
 
-cluster_t *agglomerate(int num_items, item_t *items)
+cluster_t *agglomerate(int num_items, item_t *items, int clusternumber)
 {
         cluster_t *cluster = alloc_mem(1, cluster_t);
 	elog(INFO, "ALLOCATING MEMORY TO CLUSTER");
@@ -722,63 +801,79 @@ done:
 }
 #undef init_cluster
 
-cluster_node_d_t *add_item(cluster_t *cluster, item_t *items){
+
+cluster_t* splitCluster(cluster_t *cluster, item_t *items, int clusternumber, int num_items){
+
+        elog(INFO, "splitting cluster");
+        int items_array[100] = {'\0'};
+    
+        int i = 0;
+        int *cluster_assignment_index; 
         
-	size_t lengthItem = sizeof(&(items))/sizeof(&(items[0]));
-	
-	
-        for (int i = 0; i < lengthItem; i++){
-		elog(NOTICE, "TRYING TO ADD ITEMS TO DIANA");
-                cluster->nodesD[0].items[i] = items[i];
-		elog(NOTICE, "ADDED ONE ITEM");
+
+             
+        cluster->num_nodes = 2;
+        elog(INFO, "freed the items");
+        float **matrix = generate_distance_matrix_divisive(cluster->num_nodes, cluster->nodes, items, 2, num_items);
+        elog(INFO, "generated matrix");
+        
+        choose_all_clusters_from_distance(num_items, 2, matrix, cluster_assignment_index, cluster->nodes, items_array);
+        recalculate_centroids(cluster, cluster->num_nodes, items);
+        i+=2;
+
+	elog(INFO, "i=%d", i);
+        while (i < clusternumber){
+        	elog(INFO, "while cluster number: %d", i);
+        	generate_distance_matrix_divisive(cluster->num_nodes, cluster->nodes, items, i+2, num_items);
+        	choose_all_clusters_from_distance(num_items, i+2, matrix, cluster_assignment_index, cluster->nodes, items_array);
+        	recalculate_centroids(cluster, cluster->num_nodes, items);
+        	i+=2;
+        	cluster->num_nodes = cluster->num_nodes + i;
         }
-        cluster->nodesD[0].num_items = lengthItem;
         
-        elog(NOTICE, "pls help, there are %d items:", cluster->nodesD[0].num_items); 
-}
-cluster_t *add_into_cluster(cluster_t *cluster, item_t *items)
-{
-	elog(NOTICE, "ADDING INTO CLUSTERS");
-	add_item(cluster, items);	
+        return cluster;
 }
 
-#define init_cluster_decisive(cluster, num_items, items)\
-        cluster->num_clusters = 1;                      \
-        cluster->num_items = num_items;                 \
-	cluster->num_nodes = 1;				\
-	add_into_cluster(cluster, items);		\
-	do {						\
-                               \
-	} while (0)					\
-	
-
-cluster_t *decisive(int num_items, item_t *items)
-{
-        elog(NOTICE, "DECISIVE ALGORITHM");
-	cluster_t *cluster = alloc_mem(1, cluster_t);
-	cluster->nodesD = alloc_mem(2*num_items - 1, cluster_node_d_t);
-	if (cluster->nodesD){
-		init_cluster_decisive(cluster, num_items, items);
-	}else {	
-		alloc_fail("cluster nodes");
-		goto cleanup;
+void print_cluster_items_for_diana(cluster_t *clusterD, int i, item_t *items){
+	if (clusterD->nodes[i].type == 3){
+	for (int j = 0; j < clusterD->nodes[i].num_items - 1; j++){
+		char command[200];
+		
+		sprintf(command, "update %s set cluster_id = %d where id = %s",tableName, i+1, items[clusterD->nodes[i].items[j]].label);
+		SPI_exec(command, 1);	
+		elog(INFO, "cluster number:%d, label num %s", i+1,items[clusterD->nodes[i].items[j]].label); 
+		 
 	}
+	}
+		
+}
+
+cluster_t *decisive(int num_items, item_t *items, int clusternumber)
+{
+        elog(INFO, "TRYING TO CREATE CLUSTER FOR DIANA");
+        cluster_t *clusterDiana = agglomerate(num_items, items, clusternumber);
+        elog(INFO, "CLUSTER FOR DIANA CREATED");
+        splitCluster(clusterDiana, items, clusternumber, num_items);
 	
 	goto done;
 
 cleanup:
-	free_cluster(cluster);
-	cluster = NULL;
+	free_cluster(clusterDiana);
+	clusterDiana = NULL;
 done:
-	return cluster;
+	for (int i = 0; i < clusternumber; i++){
+		elog(INFO, "trying to print cluster");
+		print_cluster_items_for_diana(clusterDiana, i, items);
+	}
 }
 	//do init cluster with 1 node, and all items in it
 
-#undef init_cluster_decisive
+
 
 int print_root_children(cluster_t *cluster, int i, int nodes_to_discard)
 {
         cluster_node_a_t *node = &(cluster->nodes[i]);
+        elog(INFO, "print root children called");
         int roots_found = 0;
         if (node->type == A_MERGER) {
                 for (int j = 0; j < 2; ++j) {
@@ -802,6 +897,7 @@ void get_k_clusters(cluster_t *cluster, int k)
         while (k) {
 		
                 if (i < nodes_to_discard) {	
+                	 elog(INFO, "get k clusters called");
                         print_cluster_items(cluster, i);
                         roots_found = 1;
 		
@@ -818,6 +914,17 @@ void print_cluster(cluster_t *cluster)
 {
         for (int i = 0; i < cluster->num_nodes; ++i)
                 print_cluster_node(cluster, i);
+}
+
+int read_items_char(item_t *items, char char_arr[][50], int call, int arrsize){
+        item_t *t = &(items[call]);
+        strcpy(t->label, char_arr[0]);
+
+        elog(INFO, "label:%s", t->label);
+        for (int i = 1; i < arrsize;i++){
+                strcpy(t->coord.char_array[i],char_arr[i]);
+                elog(INFO, "%s", t->coord.char_array[i]);        
+        }
 }
 
 int read_items(item_t *items, float coord_arr[], int call, int arrsize)
@@ -881,6 +988,14 @@ void set_distance(int distance)
 			distance_method = cosine_distance;
 			elog(INFO, "setting distance as cosine similarity");
 			break;
+		case COEFFICIENT_JACCARD:
+			distance_method = jaccard;
+			elog(INFO, "setting distance as jaccard");
+			break;
+		case SORENSEN_COEFF:
+			distance_method = soresen_coeff;
+			elog(INFO, "setting distance as sorensen");
+			break;
 		default:
 			distance_method = euclidean_distance;
 			break;
@@ -889,27 +1004,27 @@ void set_distance(int distance)
 }			
 
 void set_hierarchy(char* method){
-	//elog(ERROR, "hierarchy method:%s, %d", method, strlen(method));
+	
 	switch (method[0]) {
 		case 97 :
 			hierarchy = agglomerate;
-			//matrix = fill_euclidean_distances;
+                        elog(INFO, "setting hierarchy as agglomerate");
 			break;
 		case 65:
 			hierarchy = agglomerate;
-			//matrix = fill_euclidean_distances;
+                        elog(INFO, "setting hierarchy as agglomerate");
 			break;
 		case 100:
 			hierarchy = decisive;
-			//matrix = fill_dissimilarity_matrix;
+			elog(INFO, "setting hierarchy as decisive");
 			break;
 		case 68:
 			hierarchy = decisive;
-			//matrix = fill_dissimilarity_matrix;
+			elog(INFO, "setting hierarchy as decisive");
 			break;
 		default:
 			hierarchy = agglomerate;
-			//matrix = fill_euclidean_distances;
+			elog(INFO, "setting hierachy as decisive");
 			break;
 	}
 
@@ -927,6 +1042,13 @@ int process_input(item_t **items, float row_arr[], int proc, int j, int arrsize)
 	
 }
 
+int process_input_char(item_t **items, char char_arr[][50], int proc, int j, int arrsize){
+        if (j==0){
+                *items = alloc_mem(proc, item_t);
+        }
+        read_items_char(*items, char_arr, j, arrsize);
+}
+
 PG_MODULE_MAGIC;
 
 PG_FUNCTION_INFO_V1(hclust);
@@ -934,6 +1056,7 @@ PG_FUNCTION_INFO_V1(hclust);
 Datum
 hclust(PG_FUNCTION_ARGS)
 {
+    clock_t start = clock(), diff;
     //methods for linkage and distance
     int linkageMethod;
     int distanceMethod;
@@ -978,7 +1101,7 @@ hclust(PG_FUNCTION_ARGS)
     int max_calls;
 
     float row_arr[100] = {'\0'};
-
+    char char_arr[100][50] = {'\0'};
     clusterN = 1;
     if (clusternumber < 1) 
 	elog(ERROR, "Cluster number < 1");
@@ -988,45 +1111,57 @@ hclust(PG_FUNCTION_ARGS)
         SPITupleTable *tuptable = SPI_tuptable;
        
         uint64 j;
-	char* type;
-	
-	char *columnName;
+
+
         for (j = 0; j < proc; j++)
         {
             HeapTuple tuple = tuptable->vals[j];
             int i;    
 	    for (i = 1; i <= tupdesc->natts; i++){
-		
-
-		 char* columnType = SPI_getvalue(tuple, tupdesc, i);	
 			
 		 char* value;
 		 value = SPI_getvalue(tuple, tupdesc, i);
-		
+		 elog(NOTICE, "type:%s", SPI_gettype(tupdesc, i));		
+		 if (distanceMethod== 5 || distanceMethod == 6) {
+		 	elog(NOTICE, "using linkage 5 or 6");
+                         if (value == NULL) {
+                                strcpy(char_arr[i-1], "0");
+                         } else {
+                                elog(INFO, "trying to sscanf");
+                                strcpy(char_arr[i-1], value);
+                                elog(INFO, "%s", char_arr[i-1]); 
+                         }
+		} else {
 		 if (value == NULL){
 			elog(NOTICE, "value of %d row of %i column is null, replacing with 0");
 			row_arr[i-1] = 0;
                        
 		} else {
                 	row_arr[i-1] = atof(value);
+                	elog(INFO, "%lf", row_arr[i-1]);
 		}
 		
-		                
+	}        
 	    }
+            if (distanceMethod == 5 || distanceMethod == 6){
+                    process_input_char(&items, char_arr, proc, j, tupdesc->natts);
+            } else {
 		process_input(&items, row_arr, proc, j, tupdesc->natts); 
-	}	  	
+	}
+        }	
 	elog(NOTICE, "Input processed");
         
-        cluster_t *cluster = hierarchy(num_items, items);
-	elog(INFO, "num items: %d", cluster->num_items);
+        cluster_t *cluster = hierarchy(num_items, items, clusternumber);
+	//elog(INFO, "num items: %d", cluster->num_items);
 
-	if (cluster)
+	 if (cluster && (clusteringType[0] == 97 || clusteringType[0] == 65))
 			
-		elog(INFO, "\n\n%d CLUSTERS\n"
-		                                "--------------------\n", clusternumber);
 		get_k_clusters(cluster, clusternumber);			
         }
-	
+	diff = clock() - start;
+
+	int msec = diff * 1000 / CLOCKS_PER_SEC;
+	elog(INFO, "Time taken %d seconds %d milliseconds", msec/1000, msec%1000);
 	SPI_finish();	
     PG_RETURN_INT64(proc);
 
